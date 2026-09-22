@@ -12,6 +12,7 @@ from selenium.common.exceptions import WebDriverException
 from hiring_poc.analysis import SAMPLE_JOB, analyze
 from hiring_poc.automation import run_automation
 from hiring_poc.documents import create_report, report_html
+from hiring_poc.settings import read_settings
 
 
 ROOT = Path(__file__).resolve().parent
@@ -22,14 +23,11 @@ def fingerprint(*values):
     return hashlib.sha256(json.dumps(values, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def read_key():
-    value = os.environ.get("OPENAI_API_KEY", "").strip()
-    if not value:
-        try:
-            value = st.secrets.get("OPENAI_API_KEY", "")
-        except st.errors.StreamlitSecretNotFoundError:
-            pass
-    return str(value).strip()
+def backend_settings():
+    try:
+        return read_settings(st.secrets)
+    except st.errors.StreamlitSecretNotFoundError:
+        return read_settings({})
 
 
 for key, value in {"session_id": uuid.uuid4().hex, "analysis": None, "analysis_sig": None,
@@ -40,17 +38,19 @@ for key, value in {"session_id": uuid.uuid4().hex, "analysis": None, "analysis_s
 with st.sidebar:
     st.title("채용 업무 PoC")
     st.caption("Python · Streamlit · Selenium")
-    api_key = read_key()
+    settings = backend_settings()
+    api_key = settings.api_key
     live = bool(api_key)
-    mode = "실제 LLM · OpenAI" if live else "데모 · API 키 없이 체험"
-    model = os.environ.get("OPENAI_MODEL", "gpt-4.1-mini").strip() if live else ""
+    mode = "실제 LLM · Gemini" if live else "데모 · API 키 없이 체험"
+    model = settings.model if live else ""
     # Remove credentials left by older versions of the sidebar widget.
     st.session_state.pop("api_key", None)
     if live:
-        st.caption("실제 LLM · 백엔드 키 설정됨")
-        st.caption("분석 실행 시 입력한 공고가 OpenAI로 전송됩니다. API 사용료가 발생할 수 있습니다.")
+        st.caption("Gemini · 백엔드 키 설정됨")
+        st.caption(f"모델: {model}")
+        st.caption("분석 실행 시 입력한 공고가 Google Gemini로 전송됩니다. API 사용료가 발생할 수 있습니다.")
     else:
-        st.info("백엔드 API 키가 아직 설정되지 않아 규칙 기반 데모로 실행 중입니다.")
+        st.info("백엔드 GEMINI_API_KEY가 아직 설정되지 않아 규칙 기반 데모로 실행 중입니다.")
     st.divider()
     st.markdown("**사용 순서**\n\n1. 공고 붙여넣기 → 분석\n2. 보고서 생성 → 수정·다운로드\n3. 사이트 입력 → 저장 확인")
 

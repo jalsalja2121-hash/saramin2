@@ -46,18 +46,20 @@ API 키 없이 기본 가상 공고로 전체 흐름을 확인합니다. **LLM�
 
 ### 실제 LLM 모드
 
-`.streamlit/secrets.toml`의 `OPENAI_API_KEY`에 키를 한 번 저장하면 실제 LLM 모드로 자동 연결됩니다.
+`.streamlit/secrets.toml`의 `GEMINI_API_KEY`에 Gemini 키를 한 번 저장하면 실제 LLM 모드로 자동 연결됩니다.
 화면에 API 키 입력란은 없습니다. 키가 없으면 규칙 기반 데모로 실행됩니다.
 설정 파일을 처음 생성한 경우 앱을 재시작한 뒤 브라우저를 새로고침하세요.
-기본 모델명은 `gpt-4.1-mini`이며 `OPENAI_MODEL` 환경변수로 변경할 수 있습니다.
-Responses API와 Pydantic 구조화 출력을 사용합니다. API 키는 백엔드 설정 파일에서만 읽으며 화면에 표시하지 않습니다.
-`store=False`로 응답 저장을 요청하지 않지만, 공고는 분석을 위해 OpenAI로 전송됩니다.
+기본 모델명은 요청한 `gemini-3.8-flash`입니다. `GEMINI_MODEL` 환경변수 또는 설정 파일에서 변경할 수 있습니다.
+공식 Google GenAI SDK의 `client.interactions.create`와 JSON Schema/Pydantic 구조화 출력을 사용합니다.
+API 키는 백엔드에서만 읽으며 화면에 표시하지 않습니다. OpenAI API 키는 사용하지 않습니다.
+`store=False`로 호출하며, 공고는 분석을 위해 Google Gemini로 전송됩니다.
 실제 LLM 호출은 사용자의 API 키가 필요하며 API 요금이 발생할 수 있습니다.
 
-`.streamlit/secrets.toml` 설정 예시 (`OPENAI_API_KEY` 환경변수가 있으면 우선 적용):
+`.streamlit/secrets.toml` 설정 예시 (`GEMINI_API_KEY`/`GOOGLE_API_KEY` 환경변수가 있으면 우선 적용):
 
 ```toml
-OPENAI_API_KEY = "사용자의 API 키"
+GEMINI_API_KEY = "사용자의 Gemini API 키"
+GEMINI_MODEL = "gemini-3.8-flash"
 ```
 
 키 파일은 Git 제외 대상입니다. 분석 원문은 30~30,000자로 제한합니다.
@@ -132,7 +134,8 @@ Edge 선택 시에는 Edge 드라이버 경로를 사용해야 합니다. 브라
 streamlit_app.py          # 3개 탭, 상태 연결, 다운로드
 run.py                   # 앱 실행
 hiring_poc/
-  analysis.py            # 데모 추출 + 실제 OpenAI 구조화 분석
+  analysis.py            # 데모 추출 + 실제 Gemini 구조화 분석
+  settings.py            # 백엔드 키/모델 설정
   documents.py           # 보고서 + HTML 생성
   automation.py          # Selenium 입력/저장/확인
   demo_site.py           # Python HTTP 서버 + SQLite
@@ -154,7 +157,8 @@ $env:RUN_BROWSER_TESTS = '1'
 
 ## 구현 참고
 
-- [OpenAI Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
+- [Gemini Structured Outputs](https://ai.google.dev/gemini-api/docs/structured-output)
+- [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)
 - [Selenium 명시적 대기](https://www.selenium.dev/documentation/webdriver/waits/)
 - [Selenium Manager](https://www.selenium.dev/documentation/selenium_manager/)
 - Streamlit 1.64.0 설치 패키지의 개발 가이드와 AppTest를 사용했습니다.

@@ -36,32 +36,39 @@ def test_invalid_and_unstructured_sources():
 
 
 def test_live_contract_and_invalid_evidence(monkeypatch):
-    import openai
+    from google import genai
     result = demo_analysis(SAMPLE_JOB)
     captured = {}
 
     class FakeClient:
         def __init__(self, **kwargs):
-            self.responses = self
+            self.interactions = self
         def __enter__(self):
             return self
         def __exit__(self, *_):
             pass
-        def parse(self, **kwargs):
+        def create(self, **kwargs):
             captured.update(kwargs)
-            return SimpleNamespace(output_parsed=result)
+            return SimpleNamespace(output_text=result.model_dump_json())
 
-    monkeypatch.setattr(openai, "OpenAI", FakeClient)
+    monkeypatch.setattr(genai, "Client", FakeClient)
     assert analyze(SAMPLE_JOB, "live", "test-key", "test-model") == result
     assert captured["store"] is False
     assert captured["model"] == "test-model"
+    assert captured["response_format"]["mime_type"] == "application/json"
+    assert captured["input"] == SAMPLE_JOB.strip()
     result.required[0].evidence = "원문에 없는 가짜 인용"
     with pytest.raises(ValueError, match="근거"):
         analyze(SAMPLE_JOB, "live", "test-key", "test-model")
 
 
-def test_streamlit_flow_and_stale_results():
-    at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=20).run()
+def test_streamlit_flow_and_stale_results(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=20)
+    at.secrets["GEMINI_API_KEY"] = ""
+    at.secrets["GOOGLE_API_KEY"] = ""
+    at.run()
     assert not at.exception
     assert at.button(key="generate").disabled
     at.button(key="analyze").click().run()
@@ -81,14 +88,71 @@ def test_streamlit_flow_and_stale_results():
 
 
 def test_backend_key_auto_connects(monkeypatch):
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_MODEL", raising=False)
     at = AppTest.from_file(str(ROOT / "streamlit_app.py"), default_timeout=20)
-    at.secrets["OPENAI_API_KEY"] = "test-backend-key"
+    at.secrets["GEMINI_API_KEY"] = "test-backend-key"
+    at.secrets["GEMINI_MODEL"] = "gemini-3.8-flash"
     at.run()
     assert not at.exception
     assert any("백엔드 키 설정됨" in item.value for item in at.caption)
     assert not any(item.key == "api_key" for item in at.text_input)
     assert all("test-backend-key" not in item.value for item in at.caption)
+    assert any("gemini-3.8-flash" in item.value for item in at.caption)
+
+
+def test_gemini_settings_ignore_openai():
+    from hiring_poc.settings import read_settings
+    settings = read_settings({"OPENAI_API_KEY": "old", "GEMINI_API_KEY": " file-key "}, {})
+    assert settings.api_key == "file-key"
+    assert settings.model == "gemini-3.8-flash"
+    assert "file-key" not in repr(settings)
+    assert read_settings({"OPENAI_API_KEY": "old"}, {}).api_key == ""
+    assert read_settings({}, {"GEMINI_API_KEY": "env-key"}).api_key == "env-key"
+
+
+@pytest.mark.parametrize("code, message, expected", [
+    (400, "API key not valid. secret-test-value", "키가 유효하지"),
+    (403, "secret-test-value", "접근 권한"),
+    (404, "secret-test-value", "모델"),
+    (429, "secret-test-value", "할당량"),
+    (503, "secret-test-value", "일시적인"),
+])
+def test_gemini_errors_are_actionable_without_leaking(monkeypatch, code, message, expected):
+    from google import genai
+    from google.genai import errors
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.interactions = self
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            pass
+        def create(self, **kwargs):
+            raise errors.APIError(code, {"error": {"message": message}})
+    monkeypatch.setattr(genai, "Client", FakeClient)
+    with pytest.raises(RuntimeError) as caught:
+        analyze(SAMPLE_JOB, "live", "secret-test-value", "gemini-3.8-flash")
+    assert expected in str(caught.value)
+    assert "secret-test-value" not in str(caught.value)
+
+
+def test_actual_gemini_sdk_request_without_network(monkeypatch):
+    import httpx
+    captured = {}
+    def send(client, request, **kwargs):
+        captured["host"] = request.url.host
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(400, json={"error": {"code": 400,
+            "message": "API key not valid. secret-test-value", "status": "INVALID_ARGUMENT"}}, request=request)
+    monkeypatch.setattr(httpx.Client, "send", send)
+    with pytest.raises(RuntimeError, match="키가 유효하지") as caught:
+        analyze(SAMPLE_JOB, "live", "test-dummy-key", "gemini-3.8-flash")
+    assert "secret-test-value" not in str(caught.value)
+    assert captured["host"] == "generativelanguage.googleapis.com"
+    assert captured["body"]["model"] == "gemini-3.8-flash"
+    assert captured["body"]["store"] is False
 
 
 def test_demo_http_insert_idempotent(tmp_path):
